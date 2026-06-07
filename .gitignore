@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Palms-Biometrics — health data and secrets never go to git
+data/raw/
+data/db/
+logs/
+.env
