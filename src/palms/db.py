@@ -2,7 +2,7 @@ import sqlite3
 from pathlib import Path
 from typing import Sequence
 
-from palms.models import DailyHeartRate, SleepRecord
+from palms.models import DailyHeartRate, DailyWeight, SleepRecord
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -52,6 +52,22 @@ CREATE TABLE IF NOT EXISTS daily_heart_rate (
 
 CREATE INDEX IF NOT EXISTS idx_hr_date ON daily_heart_rate(date);
 
+CREATE TABLE IF NOT EXISTS daily_weight (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    source           TEXT NOT NULL REFERENCES sources(id),
+    date             DATE NOT NULL,
+    weight_kg        REAL,
+    fat_mass_kg      REAL,
+    fat_percentage   REAL,
+    muscle_mass_kg   REAL,
+    bone_mass_kg     REAL,
+    water_percentage REAL,
+    ingested_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_weight_date ON daily_weight(date);
+
 CREATE TABLE IF NOT EXISTS ingestion_log (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     source           TEXT NOT NULL,
@@ -69,6 +85,7 @@ SOURCES = {
     "garmin":       "Garmin Connect",
     "apple_health": "Apple Health",
     "strava":       "Strava",
+    "withings":     "Withings Scale",
 }
 
 
@@ -122,6 +139,23 @@ def upsert_daily_hr(conn: sqlite3.Connection, records: Sequence[DailyHeartRate])
         """INSERT OR IGNORE INTO daily_heart_rate
            (source, date, resting_hr_bpm, avg_hr_bpm, max_hr_bpm, min_hr_bpm)
            VALUES (?,?,?,?,?,?)""",
+        rows,
+    )
+    conn.commit()
+    return len(rows)
+
+
+def upsert_daily_weight(conn: sqlite3.Connection, records: Sequence[DailyWeight]) -> int:
+    rows = [
+        (r.source, str(r.date), r.weight_kg, r.fat_mass_kg, r.fat_percentage,
+         r.muscle_mass_kg, r.bone_mass_kg, r.water_percentage)
+        for r in records
+    ]
+    conn.executemany(
+        """INSERT OR IGNORE INTO daily_weight
+           (source, date, weight_kg, fat_mass_kg, fat_percentage,
+            muscle_mass_kg, bone_mass_kg, water_percentage)
+           VALUES (?,?,?,?,?,?,?,?)""",
         rows,
     )
     conn.commit()

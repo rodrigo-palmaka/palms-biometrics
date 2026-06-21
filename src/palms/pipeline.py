@@ -4,15 +4,15 @@ from pathlib import Path
 import click
 
 from palms.config import settings
-from palms.db import get_connection, log_ingestion, upsert_daily_hr, upsert_sleep_records
-from palms.sources import oura
+from palms.db import get_connection, log_ingestion, upsert_daily_hr, upsert_daily_weight, upsert_sleep_records
+from palms.sources import oura, withings
 
 
 @click.command()
 @click.option("--days", default=settings.default_lookback_days, show_default=True,
               help="Number of days to look back (API only).")
 @click.option("--source", default="all",
-              type=click.Choice(["all", "oura", "oura-csv"]),
+              type=click.Choice(["all", "oura", "oura-csv", "withings"]),
               help="Which source to ingest. Use oura-csv to load from exported CSVs.")
 def ingest(days: int, source: str) -> None:
     """Pull health data from connected sources and store in SQLite."""
@@ -22,8 +22,12 @@ def ingest(days: int, source: str) -> None:
 
     if source == "oura-csv":
         _ingest_oura_csv(conn)
+    elif source == "withings":
+        _ingest_withings(conn, start, end)
     elif source in ("all", "oura"):
         _ingest_oura(conn, start, end)
+        if source == "all":
+            _ingest_withings(conn, start, end)
 
     click.echo("Done.")
 
@@ -63,6 +67,23 @@ def _ingest_oura_csv(conn) -> None:
     except Exception as exc:
         log_ingestion(conn, "oura", date.today(), date.today(), 0, "failed", str(exc))
         click.echo(f"Oura CSV ingestion failed: {exc}", err=True)
+
+
+def _ingest_withings(conn, start: date, end: date) -> None:
+    if not settings.withings_client_id:
+        click.echo("Withings credentials not configured — skipping.", err=True)
+        return
+    raw_dir = Path(settings.raw_data_path) / "withings"
+    try:
+        records = withings.fetch_and_normalize(
+            settings.withings_client_id, settings.withings_client_secret, start, end, raw_dir
+        )
+        n = upsert_daily_weight(conn, records)
+        log_ingestion(conn, "withings", start, end, n, "success")
+        click.echo(f"Withings: {n} weight records.")
+    except Exception as exc:
+        log_ingestion(conn, "withings", start, end, 0, "failed", str(exc))
+        click.echo(f"Withings ingestion failed: {exc}", err=True)
 
 
 @click.command()

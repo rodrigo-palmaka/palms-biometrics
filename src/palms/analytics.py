@@ -91,3 +91,42 @@ def get_sleep_stats(conn: sqlite3.Connection, days: int = 30) -> dict:
         minutes = bedtimes.dt.hour * 60 + bedtimes.dt.minute
         stats["bedtime_consistency_min"] = round(float(minutes.std()), 1)
     return stats
+
+
+def get_weight_trend(conn: sqlite3.Connection, days: int = 90) -> pd.DataFrame:
+    return pd.read_sql(
+        f"""
+        SELECT date, weight_kg, fat_percentage
+        FROM daily_weight
+        WHERE weight_kg IS NOT NULL
+          AND date >= date('now', '-{days} days')
+        ORDER BY date
+        """,
+        conn,
+        parse_dates=["date"],
+    )
+
+
+def get_weight_stats(conn: sqlite3.Connection, days: int = 30) -> dict:
+    df = get_weight_trend(conn, days)
+    if df.empty:
+        return {}
+    w = df["weight_kg"].dropna()
+    stats: dict = {
+        "avg_kg": round(w.mean(), 1),
+        "min_kg": round(w.min(), 1),
+        "max_kg": round(w.max(), 1),
+        "days": len(w),
+    }
+    fat = df["fat_percentage"].dropna()
+    if not fat.empty:
+        stats["avg_fat_pct"] = round(fat.mean(), 1)
+    trend = "flat"
+    if len(w) >= 7:
+        slope = np.polyfit(np.arange(len(w)), w, 1)[0]
+        if slope > 0.02:
+            trend = "rising"
+        elif slope < -0.02:
+            trend = "falling"
+    stats["trend"] = trend
+    return stats

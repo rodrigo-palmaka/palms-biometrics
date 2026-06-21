@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     oura_client_id: str = ""
     oura_client_secret: str = ""
 
+    withings_client_id: str = ""
+    withings_client_secret: str = ""
+
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_user: str = ""

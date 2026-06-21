@@ -12,7 +12,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from jinja2 import Template
 
-from palms.analytics import get_resting_hr_stats, get_resting_hr_trend, get_sleep_stats, get_sleep_trend
+from palms.analytics import (get_resting_hr_stats, get_resting_hr_trend,
+                              get_sleep_stats, get_sleep_trend,
+                              get_weight_stats, get_weight_trend)
 
 matplotlib.use("Agg")
 
@@ -61,6 +63,38 @@ def build_sleep_chart(df: pd.DataFrame) -> str:
     return _fig_to_b64(fig)
 
 
+def build_weight_chart(df: pd.DataFrame) -> str:
+    has_fat = df["fat_percentage"].notna().any()
+    fig, ax1 = plt.subplots(figsize=(10, 4))
+
+    w_roll = df.set_index("date")["weight_kg"].rolling(7, min_periods=2).mean()
+    ax1.scatter(df["date"], df["weight_kg"], alpha=0.3, s=18, color="#BCAAA4")
+    ax1.plot(w_roll.index, w_roll.values, color="#4E342E", linewidth=2, label="weight 7-day avg")
+    ax1.set_ylabel("Weight (kg)", color="#4E342E")
+    ax1.tick_params(axis="y", labelcolor="#4E342E")
+
+    if has_fat:
+        ax2 = ax1.twinx()
+        fat_df = df.dropna(subset=["fat_percentage"])
+        f_roll = fat_df.set_index("date")["fat_percentage"].rolling(7, min_periods=2).mean()
+        ax2.scatter(fat_df["date"], fat_df["fat_percentage"], alpha=0.3, s=18, color="#EF9A9A")
+        ax2.plot(f_roll.index, f_roll.values, color="#C62828", linewidth=2, label="body fat% 7-day avg")
+        ax2.set_ylabel("Body Fat (%)", color="#C62828")
+        ax2.tick_params(axis="y", labelcolor="#C62828")
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, framealpha=0.5, loc="upper right")
+    else:
+        ax1.legend(framealpha=0.5)
+
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    ax1.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
+    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=30, ha="right")
+    ax1.set_title("Weight & Body Fat — Last 12 Months")
+    fig.tight_layout()
+    return _fig_to_b64(fig)
+
+
 _EMAIL_TEMPLATE = Template("""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><style>
@@ -102,29 +136,41 @@ _EMAIL_TEMPLATE = Template("""<!DOCTYPE html>
 {% if sleep_chart %}<img src="data:image/png;base64,{{ sleep_chart }}" alt="Sleep chart">{% endif %}
 {% else %}<p>No sleep data available yet.</p>{% endif %}
 
+<h2>Weight & Body Composition (last 30 days)</h2>
+{% if weight %}
+<div>
+  <span class="stat"><span class="stat-val">{{ weight.avg_kg }} kg</span><span class="stat-lbl">avg weight</span></span>
+  <span class="stat"><span class="stat-val">{{ weight.min_kg }} kg</span><span class="stat-lbl">min</span></span>
+  <span class="stat"><span class="stat-val">{{ weight.max_kg }} kg</span><span class="stat-lbl">max</span></span>
+  {% if weight.avg_fat_pct is defined %}
+  <span class="stat"><span class="stat-val">{{ weight.avg_fat_pct }}%</span><span class="stat-lbl">avg body fat</span></span>
+  {% endif %}
+  <span class="stat"><span class="stat-val trend-{{ weight.trend }}">{{ weight.trend }}</span><span class="stat-lbl">trend</span></span>
+</div>
+{% if weight_chart %}<img src="data:image/png;base64,{{ weight_chart }}" alt="Weight chart">{% endif %}
+{% else %}<p>No weight data available yet.</p>{% endif %}
+
 <div class="footer">
-  Generated {{ generated_at }} &bull; Sources: Oura Ring
+  Generated {{ generated_at }} &bull; Sources: Oura Ring{% if weight %}, Withings{% endif %}
 </div>
 </body></html>""")
 
 
 def build_email(conn: sqlite3.Connection) -> str:
-    hr_stats = get_resting_hr_stats(conn, days=30)
-    sleep_stats = get_sleep_stats(conn, days=30)
+    from datetime import datetime
 
     hr_df = get_resting_hr_trend(conn, days=90)
     sleep_df = get_sleep_trend(conn, days=30)
+    weight_df = get_weight_trend(conn, days=365)
 
-    hr_chart = build_hr_chart(hr_df) if not hr_df.empty else None
-    sleep_chart = build_sleep_chart(sleep_df) if not sleep_df.empty else None
-
-    from datetime import datetime
     return _EMAIL_TEMPLATE.render(
         week_of=date.today().strftime("%B %d, %Y"),
-        hr=hr_stats or None,
-        sleep=sleep_stats or None,
-        hr_chart=hr_chart,
-        sleep_chart=sleep_chart,
+        hr=get_resting_hr_stats(conn, days=30) or None,
+        sleep=get_sleep_stats(conn, days=30) or None,
+        weight=get_weight_stats(conn, days=30) or None,
+        hr_chart=build_hr_chart(hr_df) if not hr_df.empty else None,
+        sleep_chart=build_sleep_chart(sleep_df) if not sleep_df.empty else None,
+        weight_chart=build_weight_chart(weight_df) if not weight_df.empty else None,
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 

@@ -31,3 +31,15 @@ class DailyHeartRate:
     avg_hr_bpm: Optional[float]
     max_hr_bpm: Optional[float]
     min_hr_bpm: Optional[float]
+
+
+@dataclass
+class DailyWeight:
+    source: str
+    date: date
+    weight_kg: Optional[float]
+    fat_mass_kg: Optional[float]
+    fat_percentage: Optional[float]
+    muscle_mass_kg: Optional[float]
+    bone_mass_kg: Optional[float]
+    water_percentage: Optional[float]
